@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Signage Player</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; background:#000; overflow:hidden; font-family:-apple-system,'Segoe UI',Roboto,sans-serif; }
+
+  #stage { position:fixed; inset:0; background:#000; }
+
+  .slide {
+    position:absolute; inset:0;
+    opacity:0;
+    transition:opacity 900ms ease;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .slide.active { opacity:1; z-index:2; }
+  .slide.kenburns img { animation: kb 16s ease-in-out forwards; }
+  @keyframes kb {
+    from { transform:scale(1); }
+    to   { transform:scale(1.08); }
+  }
+
+  .slide img, .slide video {
+    width:100%; height:100%; object-fit:cover;
+  }
+
+  .slide.text-slide {
+    flex-direction:column; text-align:center; padding:6vw;
+    background: var(--bg, #111);
+  }
+  .text-slide .headline {
+    color: var(--fg, #fff);
+    font-weight:800; letter-spacing:-0.01em;
+    font-size:6vw; line-height:1.05; text-wrap:balance;
+  }
+  .text-slide .subline {
+    color: var(--fg, #fff); opacity:0.85;
+    font-weight:500; font-size:2.2vw; margin-top:2vh;
+  }
+
+  #offline-badge {
+    position:fixed; top:16px; right:16px; z-index:50;
+    background:rgba(0,0,0,0.6); color:#f2b90c;
+    font-size:13px; padding:6px 12px; border-radius:20px;
+    display:none; align-items:center; gap:8px;
+    font-family:monospace;
+  }
+  #offline-badge.show { display:flex; }
+  #offline-badge .dot { width:8px; height:8px; border-radius:50%; background:#f2b90c; }
+
+  #err {
+    position:fixed; inset:0; background:#000; color:#666;
+    display:none; align-items:center; justify-content:center;
+    font-family:monospace; font-size:18px; text-align:center; padding:5vw;
+  }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="offline-badge"><div class="dot"></div><span>using cached content</span></div>
+  <div id="err">Loading signage playlist…</div>
+
+<script>
+/* ---------------------------------------------------------
+   CONFIG
+   Screen identity comes from the URL, e.g.:
+   player.html?screen=1
+   Each screen has its own JSON playlist file so every
+   display in every location can be updated independently.
+--------------------------------------------------------- */
+const params      = new URLSearchParams(location.search);
+const screenId     = params.get('screen') || '1';
+const playlistUrl  = `./content/screen-${screenId}.json`;
+const POLL_MS      = 60 * 1000;      // check for updated content every 60s
+const RELOAD_HOUR  = 4;              // full page reload at 4am to clear memory
+
+let playlist = null;
+let lastVersion = null;
+let currentIndex = 0;
+let stage = document.getElementById('stage');
+let errBox = document.getElementById('err');
+let offlineBadge = document.getElementById('offline-badge');
+let slideTimer = null;
+let cachedRaw = null;
+
+async function fetchPlaylist() {
+  try {
+    const res = await fetch(playlistUrl + '?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    offlineBadge.classList.remove('show');
+    cachedRaw = data;
+    localStorage_safeSet(data);
+    return data;
+  } catch (e) {
+    offlineBadge.classList.add('show');
+    const cached = localStorage_safeGet();
+    if (cached) return cached;
+    return null;
+  }
+}
+
+/* Some Tizen browsers restrict localStorage in kiosk mode;
+   fail silently if unavailable rather than crashing the player. */
+function localStorage_safeSet(data) {
+  try { localStorage.setItem('signage_cache_' + screenId, JSON.stringify(data)); } catch (e) {}
+}
+function localStorage_safeGet() {
+  try {
+    const raw = localStorage.getItem('signage_cache_' + screenId);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function buildSlideEl(item) {
+  const el = document.createElement('div');
+  el.className = 'slide';
+
+  if (item.type === 'image') {
+    el.classList.add('kenburns');
+    const img = document.createElement('img');
+    img.src = item.src;
+    el.appendChild(img);
+  } else if (item.type === 'video') {
+    const vid = document.createElement('video');
+    vid.src = item.src;
+    vid.autoplay = true;
+    vid.muted = item.muted === true;
+    vid.playsInline = true;
+    vid.loop = false;
+    el.appendChild(vid);
+  } else if (item.type === 'text') {
+    el.classList.add('text-slide');
+    el.style.setProperty('--bg', item.bg || '#111');
+    el.style.setProperty('--fg', item.fg || '#fff');
+    const h = document.createElement('div');
+    h.className = 'headline';
+    h.textContent = item.headline || '';
+    el.appendChild(h);
+    if (item.subline) {
+      const s = document.createElement('div');
+      s.className = 'subline';
+      s.textContent = item.subline;
+      el.appendChild(s);
+    }
+  }
+  return el;
+}
+
+function showSlide(index) {
+  clearTimeout(slideTimer);
+  stage.innerHTML = '';
+  const item = playlist.items[index];
+  if (!item) return;
+
+  const el = buildSlideEl(item);
+  stage.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('active'));
+
+  const advance = () => {
+    currentIndex = (index + 1) % playlist.items.length;
+    showSlide(currentIndex);
+  };
+
+  if (item.type === 'video') {
+    const vid = el.querySelector('video');
+    // Fall back to a max duration in case the video fails to fire 'ended'
+    const maxMs = (item.duration || 30) * 1000;
+    const fallback = setTimeout(advance, maxMs);
+    vid.addEventListener('ended', () => { clearTimeout(fallback); advance(); });
+    vid.play().catch(() => { /* autoplay-with-sound may be blocked; still shows frame */ });
+  } else {
+    const ms = (item.duration || 8) * 1000;
+    slideTimer = setTimeout(advance, ms);
+  }
+}
+
+async function refreshLoop() {
+  const data = await fetchPlaylist();
+  if (!data || !data.items || !data.items.length) {
+    errBox.style.display = 'flex';
+    errBox.textContent = 'No content configured for screen ' + screenId;
+    return;
+  }
+  errBox.style.display = 'none';
+
+  const incomingVersion = data.version || JSON.stringify(data.items).length;
+  const isFirstLoad = playlist === null;
+  playlist = data;
+
+  if (isFirstLoad) {
+    currentIndex = 0;
+    showSlide(currentIndex);
+  } else if (incomingVersion !== lastVersion) {
+    // Content changed remotely — restart the loop cleanly on the next slide
+    currentIndex = 0;
+  }
+  lastVersion = incomingVersion;
+}
+
+function scheduleDailyReload() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(RELOAD_HOUR, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  setTimeout(() => location.reload(), next - now);
+}
+
+// Boot
+refreshLoop();
+setInterval(refreshLoop, POLL_MS);
+scheduleDailyReload();
+</script>
+</body>
+</html>
