@@ -1,27 +1,31 @@
 {
-  "version": "2026-08-19-001",
+  "version": "2026-08-19T00-07-26-609Z",
   "screen_name": "Screen 1",
   "items": [
     {
-      "type": "text",
-      "headline": "Welcome In",
-      "subline": "Today's promotions, updated daily",
-      "bg": "#0d1b2a",
-      "fg": "#ffffff",
-      "duration": 6
+      "type": "image",
+      "src": "https://ampsigns.github.io/Ampsign/IMG_9532.png",
+      "duration": 10
     },
     {
       "type": "image",
-      "src": "https://images.unsplash.com/photo-1600891964092-4316c288032e?w=1920",
-      "duration": 8
+      "src": "https://ampsigns.github.io/Ampsign/IMG_9533.png",
+      "duration": 10
     },
     {
-      "type": "text",
-      "headline": "2 for $8 Snacks",
-      "subline": "In-store only, while stocks last",
-      "bg": "#7a1f1f",
-      "fg": "#ffffff",
-      "duration": 7
+      "type": "image",
+      "src": "https://ampsigns.github.io/Ampsign/IMG_9534.png",
+      "duration": 10
+    },
+    {
+      "type": "image",
+      "src": "https://ampsigns.github.io/Ampsign/IMG_9535.png",
+      "duration": 10
+    },
+    {
+      "type": "image",
+      "src": "https://ampsigns.github.io/Ampsign/IMG_9536.png",
+      "duration": 10
     }
   ]
 }
