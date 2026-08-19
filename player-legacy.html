@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Signage Player</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; background:#000; overflow:hidden; font-family:Arial,sans-serif; }
+
+  #stage { position:fixed; top:0; left:0; right:0; bottom:0; background:#000; }
+
+  .slide {
+    position:absolute; top:0; left:0; right:0; bottom:0;
+    opacity:0;
+    -webkit-transition:opacity 900ms ease; transition:opacity 900ms ease;
+    display:-webkit-box; display:-webkit-flex; display:flex;
+    -webkit-box-align:center; -webkit-align-items:center; align-items:center;
+    -webkit-box-pack:center; -webkit-justify-content:center; justify-content:center;
+  }
+  .slide.active { opacity:1; z-index:2; }
+
+  .slide img, .slide video {
+    width:100%; height:100%;
+    -o-object-fit:cover; object-fit:cover;
+  }
+
+  .slide.text-slide {
+    -webkit-box-orient:vertical; -webkit-flex-direction:column; flex-direction:column;
+    text-align:center; padding:6vw;
+  }
+  .text-slide .headline {
+    font-weight:800; letter-spacing:-0.01em;
+    font-size:6vw; line-height:1.05;
+  }
+  .text-slide .subline {
+    opacity:0.85; font-weight:500; font-size:2.2vw; margin-top:2vh;
+  }
+
+  #offline-badge {
+    position:fixed; top:16px; right:16px; z-index:50;
+    background:rgba(0,0,0,0.6); color:#f2b90c;
+    font-size:13px; padding:6px 12px; border-radius:20px;
+    display:none;
+    font-family:monospace;
+  }
+  #offline-badge.show { display:block; }
+
+  #err {
+    position:fixed; top:0; left:0; right:0; bottom:0; background:#000; color:#666;
+    display:none;
+    -webkit-box-align:center; -webkit-align-items:center; align-items:center;
+    -webkit-box-pack:center; -webkit-justify-content:center; justify-content:center;
+    font-family:monospace; font-size:18px; text-align:center; padding:5vw;
+  }
+  #err.show { display:-webkit-box; display:-webkit-flex; display:flex; }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="offline-badge">using cached content</div>
+  <div id="err" class="show">Loading signage playlist&hellip;</div>
+
+<script>
+/* ---------------------------------------------------------
+   Compatibility build for older Tizen/WebKit browsers that
+   do not support fetch(), async/await, arrow functions,
+   const/let, template literals, or URLSearchParams.
+   Written in plain ES5 so it runs on legacy SSSP firmware.
+--------------------------------------------------------- */
+
+function getQueryParam(name) {
+  var match = new RegExp('[?&]' + name + '=([^&]*)').exec(window.location.search);
+  return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : null;
+}
+
+var screenId    = getQueryParam('screen') || '1';
+var playlistUrl = './content/screen-' + screenId + '.json';
+var POLL_MS     = 60 * 1000;   // check for updated content every 60s
+var RELOAD_HOUR = 4;           // full page reload at 4am to clear memory
+
+var playlist = null;
+var lastVersion = null;
+var currentIndex = 0;
+var stage = document.getElementById('stage');
+var errBox = document.getElementById('err');
+var offlineBadge = document.getElementById('offline-badge');
+var slideTimer = null;
+
+function safeSetCache(dataStr) {
+  try { localStorage.setItem('signage_cache_' + screenId, dataStr); } catch (e) {}
+}
+function safeGetCache() {
+  try {
+    var raw = localStorage.getItem('signage_cache_' + screenId);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function fetchPlaylist(callback) {
+  var xhr = new XMLHttpRequest();
+  var url = playlistUrl + '?t=' + new Date().getTime();
+  xhr.open('GET', url, true);
+  xhr.onreadystatechange = function () {
+    if (xhr.readyState !== 4) return;
+    if (xhr.status >= 200 && xhr.status < 300) {
+      try {
+        var data = JSON.parse(xhr.responseText);
+        offlineBadge.className = '';
+        safeSetCache(xhr.responseText);
+        callback(data);
+      } catch (e) {
+        useCacheOrFail(callback);
+      }
+    } else {
+      useCacheOrFail(callback);
+    }
+  };
+  xhr.onerror = function () { useCacheOrFail(callback); };
+  try { xhr.send(); } catch (e) { useCacheOrFail(callback); }
+}
+
+function useCacheOrFail(callback) {
+  offlineBadge.className = 'show';
+  var cached = safeGetCache();
+  callback(cached);
+}
+
+function clearStage() {
+  while (stage.firstChild) stage.removeChild(stage.firstChild);
+}
+
+function buildSlideEl(item) {
+  var el = document.createElement('div');
+  el.className = 'slide';
+
+  if (item.type === 'image') {
+    var img = document.createElement('img');
+    img.src = item.src;
+    el.appendChild(img);
+  } else if (item.type === 'video') {
+    var vid = document.createElement('video');
+    vid.src = item.src;
+    vid.autoplay = true;
+    vid.muted = (item.muted === true);
+    vid.setAttribute('playsinline', 'true');
+    vid.loop = false;
+    el.appendChild(vid);
+  } else if (item.type === 'text') {
+    el.className = 'slide text-slide';
+    el.style.background = item.bg || '#111111';
+    el.style.color = item.fg || '#ffffff';
+    var h = document.createElement('div');
+    h.className = 'headline';
+    h.appendChild(document.createTextNode(item.headline || ''));
+    el.appendChild(h);
+    if (item.subline) {
+      var s = document.createElement('div');
+      s.className = 'subline';
+      s.appendChild(document.createTextNode(item.subline));
+      el.appendChild(s);
+    }
+  }
+  return el;
+}
+
+function showSlide(index) {
+  clearTimeout(slideTimer);
+  clearStage();
+  var item = playlist.items[index];
+  if (!item) return;
+
+  var el = buildSlideEl(item);
+  stage.appendChild(el);
+  setTimeout(function () { el.className += ' active'; }, 30);
+
+  function advance() {
+    currentIndex = (index + 1) % playlist.items.length;
+    showSlide(currentIndex);
+  }
+
+  if (item.type === 'video') {
+    var vid = el.getElementsByTagName('video')[0];
+    var maxMs = (item.duration || 30) * 1000;
+    var fallback = setTimeout(advance, maxMs);
+    vid.addEventListener('ended', function () { clearTimeout(fallback); advance(); });
+    try { vid.play(); } catch (e) {}
+  } else {
+    var ms = (item.duration || 8) * 1000;
+    slideTimer = setTimeout(advance, ms);
+  }
+}
+
+function refreshLoop() {
+  fetchPlaylist(function (data) {
+    if (!data || !data.items || !data.items.length) {
+      errBox.className = 'show';
+      errBox.innerHTML = 'No content configured for screen ' + screenId;
+      return;
+    }
+    errBox.className = '';
+
+    var incomingVersion = data.version || String(JSON.stringify(data.items).length);
+    var isFirstLoad = (playlist === null);
+    playlist = data;
+
+    if (isFirstLoad) {
+      currentIndex = 0;
+      showSlide(currentIndex);
+    } else if (incomingVersion !== lastVersion) {
+      currentIndex = 0;
+    }
+    lastVersion = incomingVersion;
+  });
+}
+
+function scheduleDailyReload() {
+  var now = new Date();
+  var next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), RELOAD_HOUR, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  setTimeout(function () { window.location.reload(); }, next.getTime() - now.getTime());
+}
+
+// Boot
+refreshLoop();
+setInterval(refreshLoop, POLL_MS);
+scheduleDailyReload();
+</script>
+</body>
+</html>
