@@ -1,0 +1,31 @@
+{
+  "version": "2026-08-19T00-07-26-609Z",
+  "screen_name": "Screen 1",
+  "items": [
+    {
+      "type": "image",
+      "src": "https://ampsigns.github.io/Ampsign/IMG_9532.png",
+      "duration": 10
+    },
+    {
+      "type": "image",
+      "src": "https://ampsigns.github.io/Ampsign/IMG_9533.png",
+      "duration": 10
+    },
+    {
+      "type": "image",
+      "src": "https://ampsigns.github.io/Ampsign/IMG_9534.png",
+      "duration": 10
+    },
+    {
+      "type": "image",
+      "src": "https://ampsigns.github.io/Ampsign/IMG_9535.png",
+      "duration": 10
+    },
+    {
+      "type": "image",
+      "src": "https://ampsigns.github.io/Ampsign/IMG_9536.png",
+      "duration": 10
+    }
+  ]
+}
